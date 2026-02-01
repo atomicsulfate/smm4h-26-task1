@@ -1,0 +1,9 @@
+.github/
+.venv/
+artifacts/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdf
+dataset/*.csv
