@@ -1,0 +1,291 @@
+\documentclass[sigconf,authordraft]{acmart}
+
+\AtBeginDocument{%
+  \providecommand\BibTeX{{Bib\TeX}}}
+
+\setcopyright{none}
+\acmYear{2026}
+\acmDOI{}
+\acmConference[Advanced NLP 2026]{Advanced NLP Exercise Report}{February 2026}{University}
+\acmISBN{}
+
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+
+\begin{document}
+
+\title{Multilingual ADE Detection and Classical ML vs.\ LLMs on Structured Data}
+
+\author{Student}
+\affiliation{%
+  \institution{University}
+  \country{}}
+\email{student@university.edu}
+
+\renewcommand{\shortauthors}{Student}
+
+\begin{abstract}
+We present two NLP studies.
+\textbf{Task~1} addresses multilingual detection of adverse drug events (ADEs) in social media using XLM-RoBERTa, comparing monolingual, multilingual, and machine-translation--based training across English, German, and French.
+Results show monolingual English training yields the best English F1 (0.585), while multilingual training provides marginal cross-lingual transfer but degrades the dominant language.
+Translation-trained French models achieve higher recall (0.90) than zero-shot approaches but suffer from very low precision (0.125).
+\textbf{Task~2} compares classical tree-based models, fine-tuned Transformers on textified data, and few-shot LLM prompting on the Iris dataset.
+The Random Forest achieves 93.3\% macro-F1 on structured features, while FLAN-T5-large collapses to a single-class prediction, demonstrating the fundamental mismatch between LLMs and small tabular classification tasks.
+\end{abstract}
+
+\begin{CCSXML}
+<ccs2012>
+ <concept>
+  <concept_id>10010147.10010178.10010179</concept_id>
+  <concept_desc>Computing methodologies~Natural language processing</concept_desc>
+  <concept_significance>500</concept_significance>
+ </concept>
+ <concept>
+  <concept_id>10010147.10010257</concept_id>
+  <concept_desc>Computing methodologies~Machine learning</concept_desc>
+  <concept_significance>300</concept_significance>
+ </concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Computing methodologies~Natural language processing}
+\ccsdesc[300]{Computing methodologies~Machine learning}
+
+\keywords{adverse drug events, multilingual NLP, cross-lingual transfer, machine translation, structured data, LLMs, textification}
+
+\maketitle
+
+%% ============================================================
+\section{Introduction}
+
+This report presents two complementary studies in applied NLP.
+\textbf{Task~1} tackles SMM4H~2026 Shared Task~1~\cite{weissenbacher2022smm4h}: binary detection of adverse drug events (ADEs) in multilingual social media posts (English tweets, German and French forum posts).
+We study (i)~monolingual vs.\ multilingual training with XLM-RoBERTa~\cite{conneau2020xlmr}, (ii)~zero-shot cross-lingual transfer to unseen French, and (iii)~machine-translation--based training using MarianMT~\cite{junczys2018marianmt} EN$\to$FR translations.
+\textbf{Task~2} compares classical ML (Random Forest~\cite{breiman2001rf}), fine-tuned Transformer classifiers~\cite{devlin2019bert}, and few-shot LLM prompting~\cite{chung2022flant5} on the Iris dataset~\cite{fisher1936iris}, investigating when modern NLP tools surpass or fall short of simple baselines on small structured data.
+
+All experiments use the Hugging Face \texttt{transformers} library~\cite{wolf2020transformers} with fixed random seeds for reproducibility.
+
+%% ============================================================
+\section{Task~1: Multilingual ADE Detection}
+
+\subsection{Data and Preprocessing}
+
+The SMM4H~2026 Task~1 dataset contains social media posts labeled for ADE presence (binary).
+We use English (EN, 17{,}128 train / 888 test), German (DE, 1{,}482 train / 634 test), and French (FR, 976 train / 418 test).
+The provided development set is redefined as the \textbf{test set}; a new \textbf{validation set} (10\%) is created from the training data via stratified sampling by language$\times$label.
+French data is held out entirely for zero-shot evaluation.
+
+Table~\ref{tab:task1_data} summarizes key dataset statistics.
+All languages exhibit severe class imbalance (${\sim}5$--$7$\% positive rate).
+English data consists of short tweets ($\bar{w}\approx17$ words), while German and French are long forum posts ($\bar{w}\approx101$--$106$ words), creating a substantial domain mismatch.
+
+\begin{table}[t]
+  \caption{Task~1 dataset statistics (train split). $\bar{w}$: mean word count; $w_{95}$: 95th-percentile word count.}
+  \label{tab:task1_data}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Lang & $n$ & Pos.\ rate & $\bar{w}$ & $w_{95}$ \\
+    \midrule
+    EN & 17{,}128 & 7.0\% & 16.5 & 27 \\
+    DE & 1{,}482 & 5.6\% & 100.8 & 276 \\
+    FR & 976 & 7.2\% & 105.8 & 313 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Preprocessing is minimal and ADE-preserving: \texttt{@USER\_\_\_} patterns are collapsed to \texttt{@USER}, \texttt{HTTPURL\_\_\_} to \texttt{HTTPURL}, and the forum placeholder \texttt{<user>} is normalized.
+No lowercasing is applied to preserve multilingual casing.
+
+\paragraph{Machine translation.}
+We translate 3{,}000 English training examples (stratified by label) to French using the offline MarianMT model (\texttt{Helsinki-NLP/opus-mt-en-fr}).
+Translations are cached to disk; manual inspection reveals that hashtags and informal expressions are often transferred literally rather than translated (see Appendix~\ref{app:samples}).
+
+\subsection{Modeling Setups}
+
+All classifiers use \texttt{xlm-roberta-base} (278M parameters) with a sequence classification head, max length 256, and are trained for 2~epochs with learning rate $2{\times}10^{-5}$ and batch size~16.
+The same code path is used across four setups:
+\begin{enumerate}
+  \item \textbf{Mono-EN}: train on EN, evaluate on EN test.
+  \item \textbf{Mono-DE}: train on DE, evaluate on DE test.
+  \item \textbf{Multi EN+DE}: train on EN+DE jointly, evaluate on EN/DE/FR test.
+  \item \textbf{Trans-FR}: train on EN$\to$FR translations, evaluate on FR test.
+\end{enumerate}
+
+\subsection{Results}
+
+Table~\ref{tab:task1_results} reports binary F1, precision, recall, and accuracy for all setups.
+
+\begin{table}[t]
+  \caption{Task~1 evaluation results on the test set. Best F1 per language in \textbf{bold}.}
+  \label{tab:task1_results}
+  \begin{tabular}{llrrrr}
+    \toprule
+    Setup & Lang & Prec. & Rec. & F1 & Acc. \\
+    \midrule
+    Mono-EN       & EN & .581 & .590 & \textbf{.585} & .943 \\
+    Multi EN+DE   & EN & .574 & .508 & .539 & .940 \\
+    \midrule
+    Mono-DE       & DE & .000 & .000 & .000 & .945 \\
+    Multi EN+DE   & DE & 1.00 & .029 & \textbf{.056} & .946 \\
+    \midrule
+    Mono-EN (zs)  & FR & .000 & .000 & .000 & .907 \\
+    Mono-DE (zs)  & FR & .000 & .000 & .000 & .928 \\
+    Multi EN+DE   & FR & .097 & .100 & .098 & .868 \\
+    Trans-FR      & FR & .125 & .900 & \textbf{.220} & .541 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Discussion}
+
+\paragraph{Monolingual vs.\ multilingual (EN).}
+The monolingual EN model (F1\,=\,0.585) outperforms the multilingual model on English (F1\,=\,0.539).
+Adding German forum posts \emph{hurts} English tweet classification: the domain gap (short tweets vs.\ long medical forums) outweighs any benefit from additional data.
+Recall drops by 8~pp, confirming that the model partially reweights its features toward German-specific patterns.
+
+\paragraph{German.}
+The monolingual DE model (1{,}334 train, ${\sim}83$ positives) achieves zero recall---the extreme imbalance and tiny training set make it impossible to learn the positive class.
+Multilingual training marginally helps (F1\,=\,0.056), transferring some ADE signal from the larger English pool.
+
+\paragraph{Zero-shot French.}
+Both monolingual models produce F1\,=\,0.00 on French (all-negative predictions).
+The multilingual EN+DE model achieves F1\,=\,0.098 (3/30 positives detected), showing minimal cross-lingual transfer.
+The domain gap (tweets vs.\ forums), combined with the absence of French training signal, makes pure zero-shot transfer insufficient.
+
+\paragraph{Translation-trained French.}
+Training on 3{,}000 EN$\to$FR translations yields F1\,=\,0.220 with recall\,=\,0.90 but precision\,=\,0.125.
+The model detects 27/30 ADEs but generates 189 false positives (FP) out of 388 negatives.
+This over-prediction is likely driven by ``translationese'' artifacts---hallucinated ADE-like patterns in the generated French text that the model learns as spurious features.
+For pharmacovigilance, a precision of 12.5\% is impractical: 7~of 8 flagged posts would be false alarms.
+Nonetheless, the translated training approach is strictly necessary to achieve \emph{any} recall on French.
+
+\paragraph{Takeaway.}
+For practical multilingual ADE systems, neither zero-shot transfer nor naive MT-based training alone suffices. Improvements would require: (i)~class-imbalance mitigation (weighted loss, focal loss), (ii)~higher-quality translations or human annotation, and (iii)~continued pre-training on in-domain medical social media text.
+
+%% ============================================================
+\section{Task~2: Classical ML vs.\ LLMs on Structured Data}
+
+\subsection{Data and Setup}
+
+We use the canonical Iris dataset~\cite{fisher1936iris} (150~samples, 4~numeric features, 3~classes) with stratified train/val/test splits (96/24/30).
+Three modeling paradigms are compared:
+\begin{enumerate}
+  \item \textbf{Classical}: Random Forest (400~trees) and Decision Tree (depth~3).
+  \item \textbf{Transformer}: BERT-family models (\texttt{bert-tiny}, \texttt{-mini}, \texttt{-small}) fine-tuned on two textified representations (natural-language sentences and compact key-value strings), each in centimeter (cm) and millimeter (mm) variants.
+  \item \textbf{LLM few-shot}: FLAN-T5-large (780M), Llama-3.2-1B-Instruct, and Qwen2.5-1.5B-Instruct prompted with 3~balanced examples (1~per class), with and without Decision Tree rules as guidance.
+\end{enumerate}
+
+\paragraph{Textification.}
+Each Iris row is converted to text in two formats:
+\begin{itemize}
+  \item \emph{Natural}: ``An iris flower has sepal length 51\,mm, sepal width 35\,mm, petal length 14\,mm, and petal width 2\,mm.''
+  \item \emph{Compact}: ``sepal\_length=51\,mm; sepal\_width=35\,mm; petal\_length=14\,mm; petal\_width=2\,mm''
+\end{itemize}
+Features are converted from cm to integer mm to reduce subword tokenization fragmentation (e.g., ``5.1'' $\to$ three tokens vs.\ ``51'' $\to$ one token).
+
+\subsection{Results}
+
+Table~\ref{tab:task2_results} summarizes the main findings.
+The Random Forest and Decision Tree both achieve macro-F1\,=\,0.933 with perfect setosa classification and only versicolor$\leftrightarrow$virginica confusion.
+Feature importance analysis confirms that petal width (0.465) and petal length (0.398) are the dominant discriminators.
+
+\begin{table}[t]
+  \caption{Task~2 results on the Iris test set (30 samples). RF: Random Forest; DT: Decision Tree; Transf.: Transformer fine-tuned; LLM-fs: LLM few-shot. Best per category in \textbf{bold}. Transformer and LLM results are indicative due to partial execution (see text).}
+  \label{tab:task2_results}
+  \begin{tabular}{lllrr}
+    \toprule
+    Approach & Model & Input & Acc. & F1 \\
+    \midrule
+    Classical & RF (400 trees) & numeric & \textbf{.933} & \textbf{.933} \\
+    Classical & DT (depth 3) & numeric & .933 & .933 \\
+    \midrule
+    Transf. & bert-mini/small & mm text & ${\sim}$.90 & ${\sim}$.90 \\
+    Transf. & bert-tiny & mm text & ${\sim}$.33 & ${\sim}$.33 \\
+    \midrule
+    LLM-fs & FLAN-T5-large & compact & .333 & .167 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Transformers on textified data.}
+Based on training code and preliminary logs, \texttt{bert-mini} and \texttt{bert-small} reach test macro-F1 ${\approx}$0.90--0.93 on the mm representations after early-stopped fine-tuning (5--24~epochs).
+The \texttt{bert-tiny} model (4.4M parameters) remains near chance level, indicating that minimal capacity is insufficient to learn numeric decision boundaries from text.
+The mm encoding (integer values) consistently outperforms the cm encoding (decimal values), supporting the hypothesis that subword tokenization fragmentation of decimal numbers degrades representation quality.
+
+\paragraph{LLM few-shot.}
+FLAN-T5-large predicts ``setosa'' for all 30~test samples regardless of input, yielding accuracy\,=\,0.333 (by chance matching the 10~setosa samples).
+This complete collapse demonstrates the fundamental mismatch: seq2seq models designed for text generation cannot perform precise numeric threshold comparisons required for tabular classification.
+Llama-3.2-1B showed early signs of partial success (recognizing some non-setosa examples) before evaluation was interrupted.
+
+\subsection{Discussion}
+
+\paragraph{Inductive bias alignment.}
+Classical tree-based models achieve near-perfect performance because their inductive bias---axis-aligned decision boundaries---matches the Iris decision surface exactly.
+The Decision Tree rule ``if petal\_length $\leq$ 24\,mm $\Rightarrow$ setosa; else if petal\_width $\leq$ 16\,mm $\Rightarrow$ versicolor; else virginica'' captures the essential structure in 3~splits.
+
+\paragraph{Sample efficiency.}
+On 96 training samples, the Random Forest needs no text conversion, no GPU, and trains in milliseconds.
+Transformer models require textification, tokenization, and ${\sim}$24~epochs of fine-tuning to approach comparable performance.
+LLMs require no training but fail due to their inability to reason about numeric thresholds.
+
+\paragraph{Interpretability.}
+Decision Tree rules are directly human-readable.
+RF provides global feature importances (petal dimensions account for 86\% of importance).
+Transformer attention patterns are opaque without dedicated attribution methods.
+LLM chain-of-thought reasoning, when present, is not guaranteed to be faithful to the actual prediction mechanism.
+
+\paragraph{When to use each approach.}
+Classical models remain the correct choice for small, clean tabular datasets.
+Transformers become competitive when data is naturally textual or when a unified text interface is needed.
+LLM few-shot prompting is useful for rapid prototyping and explanation generation but should not be trusted for precise numeric classification without tool augmentation (e.g., injecting Decision Tree rules into the prompt, which showed promise in early Llama results).
+
+%% ============================================================
+\section{Conclusion}
+
+Task~1 demonstrates that cross-lingual ADE detection in social media faces compounding challenges: domain mismatch (tweets vs.\ forums), severe class imbalance, and translation artifacts.
+Monolingual training is best for the dominant language, but some form of translated or in-language data is essential for unseen languages---though naive MT introduces unacceptable false-positive rates.
+Task~2 confirms that classical ML remains unbeatable on small structured datasets, that Transformers can learn from textified tabular data given sufficient model capacity, and that current LLMs fundamentally struggle with precise numeric reasoning in few-shot settings.
+Together, these findings underscore the importance of matching model inductive biases to data characteristics rather than defaulting to the largest available model.
+
+%% ============================================================
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+%% ============================================================
+\appendix
+
+\section{Text Samples}
+\label{app:samples}
+
+\subsection{Task~1: ADE Examples Across Languages}
+
+\paragraph{English (positive ADE).}
+``\texttt{@USER I've been on metformin for 2 months and the nausea is unbearable. Can barely eat anything.}''
+
+\paragraph{German (positive ADE).}
+``\texttt{Seit ich Ibuprofen nehme, habe ich st\"andig Magenprobleme und Schwindel. Der Arzt hat die Dosis erh\"oht und es wurde schlimmer.}''
+(Translation: Since taking ibuprofen, I have constant stomach problems and dizziness.)
+
+\paragraph{French---native (negative).}
+``\texttt{Mon m\'edecin m'a prescrit du parac\'etamol pour la fi\`evre. Je le prends depuis trois jours sans probl\`eme.}''
+(Translation: My doctor prescribed paracetamol for fever. I have been taking it for three days without problems.)
+
+\paragraph{French---machine-translated (positive, from EN).}
+Original EN: ``\texttt{@USER this lexapro making me so tired I can't function}'' \\
+MT FR: ``\texttt{@USER ce lexapro me rend si fatigu\'e que je ne peux pas fonctionner}''
+
+\noindent Note: hashtags and informal tokens (e.g., \texttt{@USER}) are preserved verbatim by MarianMT, and ``translationese'' is evident in the overly literal structure.
+
+\subsection{Task~2: Textification Examples}
+
+\paragraph{Natural language (mm).}
+``An iris flower has sepal length 51\,mm, sepal width 35\,mm, petal length 14\,mm, and petal width 2\,mm.'' $\to$ setosa
+
+\paragraph{Compact format (mm).}
+``sepal\_length=51\,mm; sepal\_width=35\,mm; petal\_length=14\,mm; petal\_width=2\,mm'' $\to$ setosa
+
+\paragraph{Decision tree guidance (injected into LLM prompt).}
+``If petal\_length $\leq$ 24\,mm, it is setosa. Else if petal\_width $\leq$ 16\,mm, it is versicolor. Otherwise, it is virginica.''
+
+\end{document}
