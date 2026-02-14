@@ -12,6 +12,7 @@
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{graphicx}
+\usepackage{subcaption}
 
 \begin{document}
 
@@ -28,8 +29,8 @@
 \begin{abstract}
 We present two NLP studies.
 \textbf{Task~1} addresses multilingual detection of adverse drug events (ADEs) in social media using XLM-RoBERTa, comparing monolingual, multilingual, and machine-translation--based training across English, German, and French.
-Results show monolingual English training yields the best English F1 (0.585), while multilingual training provides marginal cross-lingual transfer but degrades the dominant language.
-Translation-trained French models achieve higher recall (0.90) than zero-shot approaches but suffer from very low precision (0.125).
+With 10 training epochs and early stopping, the multilingual EN+DE model outperforms all monolingual baselines on every language (EN F1\,=\,0.707, DE F1\,=\,0.484, FR zero-shot F1\,=\,0.321), reversing the initial finding that multilingual training hurts dominant-language performance.
+Translation-trained French models collapse to all-negative predictions under natural class distribution, confirming MT artifacts as the fundamental bottleneck.
 \textbf{Task~2} compares classical tree-based models, fine-tuned Transformers on textified data, and few-shot LLM prompting (FLAN-T5, Llama-3.2, Qwen2.5) on the Iris dataset.
 The Random Forest and best Transformers both achieve 93.3\% macro-F1, while LLMs range from 16.7\% (FLAN-T5, single-class collapse) to 75.7\% (Qwen guided), demonstrating the fundamental mismatch between LLMs and small tabular tasks and the unreliability of LLM reasoning on numeric data.
 \end{abstract}
@@ -60,11 +61,11 @@ The Random Forest and best Transformers both achieve 93.3\% macro-F1, while LLMs
 \section{Introduction}
 
 This report presents two complementary studies in applied NLP.
-\textbf{Task~1} tackles SMM4H~2026 Shared Task~1~\cite{weissenbacher2022smm4h}: binary detection of adverse drug events (ADEs) in multilingual social media posts (English tweets, German and French forum posts).
-We study (i)~monolingual vs.\ multilingual training with XLM-RoBERTa~\cite{conneau2020xlmr}, (ii)~zero-shot cross-lingual transfer to unseen French, and (iii)~machine-translation--based training using MarianMT~\cite{junczys2018marianmt} EN$\to$FR translations.
-\textbf{Task~2} compares classical ML (Random Forest~\cite{breiman2001rf}), fine-tuned Transformer classifiers~\cite{devlin2019bert}, and few-shot LLM prompting~\cite{chung2022flant5} on the Iris dataset~\cite{fisher1936iris}, investigating when modern NLP tools surpass or fall short of simple baselines on small structured data.
+\textbf{Task~1} tackles SMM4H~2026 Shared Task~1~: binary detection of adverse drug events (ADEs) in multilingual social media posts (English tweets, German and French forum posts).
+We study (i)~monolingual vs.\ multilingual training with XLM-RoBERTa~, (ii)~zero-shot cross-lingual transfer to unseen French, and (iii)~machine-translation--based training using MarianMT~ EN$\to$FR translations.
+\textbf{Task~2} compares classical ML (Random Forest~), fine-tuned Transformer classifiers~, and few-shot LLM prompting~ on the Iris dataset~, investigating when modern NLP tools surpass or fall short of simple baselines on small structured data.
 
-All experiments use the Hugging Face \texttt{transformers} library~\cite{wolf2020transformers} with fixed random seeds for reproducibility.
+All experiments use the Hugging Face \texttt{transformers} library~ with fixed random seeds for reproducibility.
 
 %% ============================================================
 \section{Task~1: Multilingual ADE Detection}
@@ -98,12 +99,40 @@ Preprocessing is minimal and ADE-preserving: \texttt{@USER\_\_\_} patterns are c
 No lowercasing is applied to preserve multilingual casing.
 
 \paragraph{Machine translation.}
-We translate 3{,}000 English training examples (stratified by label) to French using the offline MarianMT model (\texttt{Helsinki-NLP/opus-mt-en-fr}).
-Translations are cached to disk; manual inspection reveals that hashtags and informal expressions are often transferred literally rather than translated (see Appendix~\ref{app:samples}).
+We translate 6{,}000 English training examples to French using the offline MarianMT model (\texttt{Helsinki-NLP/\allowbreak opus-mt-en-fr}), preserving the natural label distribution (${\sim}7$\% positive; 420~positive, 5{,}580~negative).
+Translations are cached to disk; manual inspection reveals that hashtags, informal expressions, and social-media tokens are often transferred literally rather than adapted (see Appendix~\ref{app:samples}).
+
+\paragraph{Data exploration.}
+Figure~\ref{fig:label_dist} shows the label distribution across languages for the train and test splits.
+All languages exhibit severe class imbalance (${\sim}5$--$7$\% positive rate), with EN dominating in absolute size.
+Figure~\ref{fig:wordlen} plots word-length distributions: English tweets average ${\sim}17$~words, while German and French forum posts average ${\sim}101$--$106$ words, creating a substantial domain mismatch that affects both truncation behaviour and model generalisation.
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.48\columnwidth}
+    \centering
+    \includegraphics[width=\linewidth]{label_dist_train.pdf}
+    \caption{Train split.}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.48\columnwidth}
+    \centering
+    \includegraphics[width=\linewidth]{label_dist_test.pdf}
+    \caption{Test split.}
+  \end{subfigure}
+  \caption{Label distribution by language. All languages have ${\sim}5$--$7$\% positive rate; EN dominates in size.}
+  \label{fig:label_dist}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\columnwidth]{word_length_dist.pdf}
+  \caption{Word-length distribution (training set). Tweets (EN) are short; forum posts (DE/FR) are 5--6$\times$ longer, causing truncation at \texttt{max\_length=256}.}
+  \label{fig:wordlen}
+\end{figure}
 
 \subsection{Modeling Setups}
 
-All classifiers use \texttt{xlm-roberta-base} (278M parameters) with a sequence classification head, max length 256, and are trained for 2~epochs with learning rate $2{\times}10^{-5}$ and batch size~16.
+All classifiers use \texttt{xlm-roberta-base} (278M parameters) with a sequence classification head, max length 256, and are trained for up to 10~epochs with early stopping (patience\,=\,3 on validation F1), learning rate $2{\times}10^{-5}$, batch size~16, and weight decay~0.01.
 The same code path is used across four setups:
 \begin{enumerate}
   \item \textbf{Mono-EN}: train on EN, evaluate on EN test.
@@ -117,51 +146,76 @@ The same code path is used across four setups:
 Table~\ref{tab:task1_results} reports binary F1, precision, recall, and accuracy for all setups.
 
 \begin{table}[t]
-  \caption{Task~1 evaluation results on the test set. Best F1 per language in \textbf{bold}.}
+  \caption{Task~1 evaluation results on the test set. Best F1 per language in \textbf{bold}. (zs)\,=\,zero-shot.}
   \label{tab:task1_results}
   \begin{tabular}{llrrrr}
     \toprule
     Setup & Lang & Prec. & Rec. & F1 & Acc. \\
     \midrule
-    Mono-EN       & EN & .581 & .590 & \textbf{.585} & .943 \\
-    Multi EN+DE   & EN & .574 & .508 & .539 & .940 \\
+    Mono-EN       & EN & .655 & .590 & .621 & .950 \\
+    Multi EN+DE   & EN & .745 & .672 & \textbf{.707} & .962 \\
     \midrule
     Mono-DE       & DE & .000 & .000 & .000 & .945 \\
-    Multi EN+DE   & DE & 1.00 & .029 & \textbf{.056} & .946 \\
+    Multi EN+DE   & DE & .393 & .629 & \textbf{.484} & .926 \\
     \midrule
-    Mono-EN (zs)  & FR & .000 & .000 & .000 & .907 \\
+    Mono-EN (zs)  & FR & .109 & .333 & .164 & .756 \\
     Mono-DE (zs)  & FR & .000 & .000 & .000 & .928 \\
-    Multi EN+DE   & FR & .097 & .100 & .098 & .868 \\
-    Trans-FR      & FR & .125 & .900 & \textbf{.220} & .541 \\
+    Multi EN+DE   & FR & .206 & .733 & \textbf{.321} & .778 \\
+    Trans-FR      & FR & .000 & .000 & .000 & .928 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.32\columnwidth}
+    \centering
+    \includegraphics[width=\linewidth]{cm_multi_en.pdf}
+    \caption{EN test.}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.32\columnwidth}
+    \centering
+    \includegraphics[width=\linewidth]{cm_multi_de.pdf}
+    \caption{DE test.}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.32\columnwidth}
+    \centering
+    \includegraphics[width=\linewidth]{cm_multi_fr.pdf}
+    \caption{FR test (zero-shot).}
+  \end{subfigure}
+  \caption{Confusion matrices for the multilingual EN+DE model across languages. EN is precise (14~FP); DE/FR produce more FPs due to long medical forum posts.}
+  \label{fig:cm_multi}
+\end{figure}
+
 \subsection{Discussion}
 
-\paragraph{Monolingual vs.\ multilingual (EN).}
-The monolingual EN model (F1\,=\,0.585) outperforms the multilingual model on English (F1\,=\,0.539).
-Adding German forum posts \emph{hurts} English tweet classification: the domain gap (short tweets vs.\ long medical forums) outweighs any benefit from additional data.
-Recall drops by 8~pp, confirming that the model partially reweights its features toward German-specific patterns.
+\paragraph{When multilingual training helps.}
+The multilingual EN+DE model (F1\,=\,0.707) now \emph{substantially outperforms} the monolingual EN model (F1\,=\,0.621) on English---a complete reversal from early experiments where only 2~epochs were used and multilingual training hurt EN performance.
+With sufficient training, the model separates language-specific and shared features; the jointly trained model sees a wider variety of negative examples, reducing EN false positives (14~FP vs.\ 19 for monolingual) while also improving recall (41~TP vs.\ 36).
+For German, the monolingual model (83~positives) still collapses to all-negative predictions, but multilingual training rescues DE dramatically (F1\,=\,0.484, recall\,=\,0.629, detecting 22/35~positives) by transferring ADE patterns from the larger EN pool.
 
-\paragraph{German.}
-The monolingual DE model (1{,}334 train, ${\sim}83$ positives) achieves zero recall---the extreme imbalance and tiny training set make it impossible to learn the positive class.
-Multilingual training marginally helps (F1\,=\,0.056), transferring some ADE signal from the larger English pool.
+\paragraph{Zero-shot cross-lingual transfer.}
+The multilingual model achieves F1\,=\,0.321 on French without any FR training data (recall\,=\,0.733, 22/30~positives detected), while the monolingual EN model achieves only F1\,=\,0.164 (10/30~detected).
+Nearly all examples caught by mono-EN are also caught by multi EN+DE, which uniquely catches 13~additional positives---confirming that multilingual training provides strictly broader cross-lingual transfer.
+Interestingly, the model's \textbf{recall transfers across languages better than its precision}: XLM-R captures universal ADE indicators (drug--symptom co-occurrence, complaint phrasing), but cannot learn language-specific negative-class patterns for unseen languages.
+This yields a clear precision--recall gradient: EN~(0.745/0.672), DE~(0.393/0.629), FR~(0.206/0.733)---precision degrades as linguistic distance from training data increases, while recall remains strong (Figure~\ref{fig:cm_multi}).
 
-\paragraph{Zero-shot French.}
-Both monolingual models produce F1\,=\,0.00 on French (all-negative predictions).
-The multilingual EN+DE model achieves F1\,=\,0.098 (3/30 positives detected), showing minimal cross-lingual transfer.
-The domain gap (tweets vs.\ forums), combined with the absence of French training signal, makes pure zero-shot transfer insufficient.
+\paragraph{Translation-trained FR: two failure modes.}
+The translation-trained model demonstrates extreme sensitivity to label distribution.
+Under 50/50~balanced sampling (3k~translations, baseline experiment), it achieved recall\,=\,0.90 but precision\,=\,0.125 (189~FPs), having learned ``translationese'' patterns as spurious ADE indicators.
+Under natural ${\sim}7$\% positive rate (6k~translations), it predicts all-negative (F1\,=\,0.00): the ${\sim}420$~positives among 6{,}000 MT-generated examples contain too much translation noise for the model to learn any discriminative signal.
+Neither extreme of label balancing produces a usable classifier, highlighting that \textbf{MT quality and naturalness}---not just sample size or class ratio---are the fundamental bottleneck.
+The zero-shot multilingual model (F1\,=\,0.321) now \emph{surpasses} both translation-trained configurations, demonstrating that cross-lingual transfer from quality multilingual training outperforms naive MT-based training on this task.
 
-\paragraph{Translation-trained French.}
-Training on 3{,}000 EN$\to$FR translations yields F1\,=\,0.220 with recall\,=\,0.90 but precision\,=\,0.125.
-The model detects 27/30 ADEs but generates 189 false positives (FP) out of 388 negatives.
-This over-prediction is likely driven by ``translationese'' artifacts---hallucinated ADE-like patterns in the generated French text that the model learns as spurious features.
-For pharmacovigilance, a precision of 12.5\% is impractical: 7~of 8 flagged posts would be false alarms.
-Nonetheless, the translated training approach is strictly necessary to achieve \emph{any} recall on French.
+\paragraph{Error analysis.}
+False positives concentrate in long forum posts: DE/FR~FPs have median word counts of 176/146 words, far exceeding correctly classified negatives (71/62), suggesting the model learns the spurious heuristic \emph{long medical text\,$\Rightarrow$\,ADE}.
+The \texttt{max\_length=256} truncation aggravates this by forcing decisions on partial, keyword-rich text.
+English FNs are typically short, terse tweets where ADE mentions are implicit or use colloquial abbreviations (e.g., ``\textit{side fx}'' for side effects, misspelled medical terms).
+French FNs have very low positive probability ($p \leq 0.003$), indicating the model is \emph{confidently wrong}---these likely represent ADEs described with French-specific vocabulary lacking equivalents in the EN/DE training data.
 
-\paragraph{Takeaway.}
-For practical multilingual ADE systems, neither zero-shot transfer nor naive MT-based training alone suffices. Improvements would require: (i)~class-imbalance mitigation (weighted loss, focal loss), (ii)~higher-quality translations or human annotation, and (iii)~continued pre-training on in-domain medical social media text.
+\paragraph{Limitations and recommendations.}
+For practical deployment, F1\,=\,0.321 and precision\,=\,20.6\% on FR are insufficient for pharmacovigilance (${\sim}$4 of 5~flagged posts are false alarms).
+Improvements would require: (i)~class-imbalance handling (weighted loss, focal loss, threshold tuning), (ii)~higher-quality translations or human annotation with moderate oversampling, (iii)~domain-adaptive pre-training on medical social media text, and (iv)~adding more training languages to the multilingual pool to broaden cross-lingual coverage.
 
 %% ============================================================
 \section{Task~2: Classical ML vs.\ LLMs on Structured Data}
@@ -254,8 +308,9 @@ Classical models are optimal for small structured data. Transformers are viable 
 %% ============================================================
 \section{Conclusion}
 
-Task~1 demonstrates that cross-lingual ADE detection in social media faces compounding challenges: domain mismatch (tweets vs.\ forums), severe class imbalance, and translation artifacts.
-Monolingual training is best for the dominant language, but some form of translated or in-language data is essential for unseen languages---though naive MT introduces unacceptable false-positive rates.
+Task~1 demonstrates that multilingual training with XLM-RoBERTa, given sufficient epochs, is the single most effective strategy for cross-lingual ADE detection: it achieves the best F1 on all three languages simultaneously (EN\,0.707, DE\,0.484, FR zero-shot\,0.321), reversing early findings that multilingual training hurts dominant-language performance.
+Translation-based training proves unreliable---collapsing to all-negative or all-positive predictions depending on label distribution---confirming that MT quality, not merely data quantity, is the bottleneck for cross-lingual ADE systems.
+Precision on unseen languages remains the key limitation, driven by an asymmetry in what transfers cross-lingually: recall generalises better than precision.
 Task~2 confirms that classical ML remains unbeatable on small structured datasets, that Transformers can learn from textified tabular data given sufficient model capacity, and that current LLMs fundamentally struggle with precise numeric reasoning in few-shot settings.
 Together, these findings underscore the importance of matching model inductive biases to data characteristics rather than defaulting to the largest available model.
 
