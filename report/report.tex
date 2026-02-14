@@ -1,4 +1,4 @@
-\documentclass[sigconf,authordraft]{acmart}
+\documentclass[sigconf]{acmart}
 
 \AtBeginDocument{%
   \providecommand\BibTeX{{Bib\TeX}}}
@@ -6,7 +6,7 @@
 \setcopyright{none}
 \acmYear{2026}
 \acmDOI{}
-\acmConference[Advanced NLP 2026]{Advanced NLP Exercise Report}{February 2026}{University}
+\acmConference[Advanced NLP 2026]{Advanced NLP Exercise Report}{February 2026}{TU Berlin, Germany}
 \acmISBN{}
 
 \usepackage{booktabs}
@@ -17,21 +17,21 @@
 
 \title{Multilingual ADE Detection and Classical ML vs.\ LLMs on Structured Data}
 
-\author{Student}
+\author{Andrés Mandado Almajano}
 \affiliation{%
-  \institution{University}
-  \country{}}
-\email{student@university.edu}
+  \institution{TU Berlin}
+  \country{Germany}}
+\email{mandadoalmajano@tu-berlin.de}
 
-\renewcommand{\shortauthors}{Student}
+\renewcommand{\shortauthors}{Andrés Mandado Almajano}
 
 \begin{abstract}
 We present two NLP studies.
 \textbf{Task~1} addresses multilingual detection of adverse drug events (ADEs) in social media using XLM-RoBERTa, comparing monolingual, multilingual, and machine-translation--based training across English, German, and French.
 Results show monolingual English training yields the best English F1 (0.585), while multilingual training provides marginal cross-lingual transfer but degrades the dominant language.
 Translation-trained French models achieve higher recall (0.90) than zero-shot approaches but suffer from very low precision (0.125).
-\textbf{Task~2} compares classical tree-based models, fine-tuned Transformers on textified data, and few-shot LLM prompting on the Iris dataset.
-The Random Forest achieves 93.3\% macro-F1 on structured features, while FLAN-T5-large collapses to a single-class prediction, demonstrating the fundamental mismatch between LLMs and small tabular classification tasks.
+\textbf{Task~2} compares classical tree-based models, fine-tuned Transformers on textified data, and few-shot LLM prompting (FLAN-T5, Llama-3.2, Qwen2.5) on the Iris dataset.
+The Random Forest and best Transformers both achieve 93.3\% macro-F1, while LLMs range from 16.7\% (FLAN-T5, single-class collapse) to 75.7\% (Qwen guided), demonstrating the fundamental mismatch between LLMs and small tabular tasks and the unreliability of LLM reasoning on numeric data.
 \end{abstract}
 
 \begin{CCSXML}
@@ -172,73 +172,84 @@ We use the canonical Iris dataset~\cite{fisher1936iris} (150~samples, 4~numeric 
 Three modeling paradigms are compared:
 \begin{enumerate}
   \item \textbf{Classical}: Random Forest (400~trees) and Decision Tree (depth~3).
-  \item \textbf{Transformer}: BERT-family models (\texttt{bert-tiny}, \texttt{-mini}, \texttt{-small}) fine-tuned on two textified representations (natural-language sentences and compact key-value strings), each in centimeter (cm) and millimeter (mm) variants.
-  \item \textbf{LLM few-shot}: FLAN-T5-large (780M), Llama-3.2-1B-Instruct, and Qwen2.5-1.5B-Instruct prompted with 3~balanced examples (1~per class), with and without Decision Tree rules as guidance.
+  \item \textbf{Transformer}: BERT-family models (\texttt{bert-tiny}, \texttt{-mini}, \texttt{-small}) fine-tuned on two textified representations (natural-language and compact key-value), each in cm and mm variants.
+  \item \textbf{LLM few-shot}: FLAN-T5-large (780M), Llama-3.2-1B-Instruct, and Qwen2.5-1.5B-Instruct prompted with 3~balanced examples, with and without Decision Tree rules as guidance.
 \end{enumerate}
 
 \paragraph{Textification.}
-Each Iris row is converted to text in two formats:
-\begin{itemize}
-  \item \emph{Natural}: ``An iris flower has sepal length 51\,mm, sepal width 35\,mm, petal length 14\,mm, and petal width 2\,mm.''
-  \item \emph{Compact}: ``sepal\_length=51\,mm; sepal\_width=35\,mm; petal\_length=14\,mm; petal\_width=2\,mm''
-\end{itemize}
-Features are converted from cm to integer mm to reduce subword tokenization fragmentation (e.g., ``5.1'' $\to$ three tokens vs.\ ``51'' $\to$ one token).
+Each row is converted to two text formats (e.g., \emph{natural}: ``An iris flower has sepal length 51\,mm \ldots'' and \emph{compact}: ``sepal\_length=51\,mm; \ldots'').
+Features are converted from cm to integer mm to reduce subword tokenization fragmentation (``5.1'' $\to$ three tokens vs.\ ``51'' $\to$ one).
 
 \subsection{Results}
 
-Table~\ref{tab:task2_results} summarizes the main findings.
-The Random Forest and Decision Tree both achieve macro-F1\,=\,0.933 with perfect setosa classification and only versicolor$\leftrightarrow$virginica confusion.
-Feature importance analysis confirms that petal width (0.465) and petal length (0.398) are the dominant discriminators.
+\paragraph{Classical baselines.}
+Both RF and DT achieve macro-F1\,=\,0.933, with only versicolor$\leftrightarrow$virginica confusion.
+RF feature importances confirm petal width (0.465) and petal length (0.398) as dominant discriminators; sepal width contributes only 0.014.
+The DT captures the decision surface in 3~rules: \emph{petal\_length $\leq$24\,mm $\Rightarrow$ setosa; petal\_width $\leq$16\,mm $\Rightarrow$ versicolor; else virginica}.
+
+\paragraph{Transformers on textified data.}
+Table~\ref{tab:task2_transf} shows the best model per textification.
+\texttt{bert-mini} and \texttt{bert-small} reach 0.933 macro-F1 on three of four representations, matching RF. \texttt{bert-tiny} collapses to near-chance (omitted).
+The mm encoding consistently outperforms cm, confirming that subword fragmentation of decimals degrades learning.
 
 \begin{table}[t]
-  \caption{Task~2 results on the Iris test set (30 samples). RF: Random Forest; DT: Decision Tree; Transf.: Transformer fine-tuned; LLM-fs: LLM few-shot. Best per category in \textbf{bold}. Transformer and LLM results are indicative due to partial execution (see text).}
-  \label{tab:task2_results}
-  \begin{tabular}{lllrr}
+  \caption{Task~2 Transformer results: best model per textification on the Iris test set (30~samples).}
+  \label{tab:task2_transf}
+  \begin{tabular}{llrrr}
     \toprule
-    Approach & Model & Input & Acc. & F1 \\
+    Repr. & Best model & Acc. & F1 & Epoch \\
     \midrule
-    Classical & RF (400 trees) & numeric & \textbf{.933} & \textbf{.933} \\
-    Classical & DT (depth 3) & numeric & .933 & .933 \\
-    \midrule
-    Transf. & bert-mini/small & mm text & ${\sim}$.90 & ${\sim}$.90 \\
-    Transf. & bert-tiny & mm text & ${\sim}$.33 & ${\sim}$.33 \\
-    \midrule
-    LLM-fs & FLAN-T5-large & compact & .333 & .167 \\
+    compact\_cm & bert-small & .933 & .933 & 10 \\
+    compact\_mm & bert-mini & .933 & .933 & 20 \\
+    natural\_cm & bert-small & .900 & .900 & 21 \\
+    natural\_mm & bert-small & .933 & .933 & 9 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\paragraph{Transformers on textified data.}
-Based on training code and preliminary logs, \texttt{bert-mini} and \texttt{bert-small} reach test macro-F1 ${\approx}$0.90--0.93 on the mm representations after early-stopped fine-tuning (5--24~epochs).
-The \texttt{bert-tiny} model (4.4M parameters) remains near chance level, indicating that minimal capacity is insufficient to learn numeric decision boundaries from text.
-The mm encoding (integer values) consistently outperforms the cm encoding (decimal values), supporting the hypothesis that subword tokenization fragmentation of decimal numbers degrades representation quality.
-
 \paragraph{LLM few-shot.}
-FLAN-T5-large predicts ``setosa'' for all 30~test samples regardless of input, yielding accuracy\,=\,0.333 (by chance matching the 10~setosa samples).
-This complete collapse demonstrates the fundamental mismatch: seq2seq models designed for text generation cannot perform precise numeric threshold comparisons required for tabular classification.
-Llama-3.2-1B showed early signs of partial success (recognizing some non-setosa examples) before evaluation was interrupted.
+Table~\ref{tab:task2_llm} shows all LLM results.
+FLAN-T5-large predicts ``setosa'' for every sample (F1\,=\,0.167), both unguided and guided. It produces no reasoning---only the bare token---ignoring the prompt structure entirely.
+This is plausibly due to (i)~the lack of a chat template (the prompt is raw text to the encoder), (ii)~the seq2seq architecture defaulting to the first plausible label, and (iii)~the absence of numeric reasoning capacity at this scale.
+
+Llama and Qwen benefit critically from \textbf{chat templates}, which frame the prompt with role markers. Without this, instruct-tuned decoder models would likely degenerate similarly to T5. Guidance improves Llama by +0.067 F1 and Qwen by +0.007 F1; the larger effect on Llama suggests weaker models benefit more from explicit rules.
+
+\begin{table}[t]
+  \caption{Task~2 LLM few-shot results (Iris test, 30 samples). Cov.: parseable outputs.}
+  \label{tab:task2_llm}
+  \begin{tabular}{llrrrr}
+    \toprule
+    Model & Mode & Acc. & F1 & Cov. \\
+    \midrule
+    FLAN-T5-large & unguided & .333 & .167 & 30 \\
+    FLAN-T5-large & guided & .333 & .167 & 30 \\
+    Llama-3.2-1B & unguided & .600 & .489 & 30 \\
+    Llama-3.2-1B & guided & .667 & .556 & 30 \\
+    Qwen2.5-1.5B & unguided & .759 & .750 & 29 \\
+    Qwen2.5-1.5B & guided & \textbf{.767} & \textbf{.757} & 30 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Reasoning quality and errors.}
+Llama and Qwen produce structured reasoning; FLAN-T5 produces none. Inspection reveals that misclassifications stem from faulty numeric reasoning near the versicolor/virginica boundary. For example, Llama unguided outputs ``\emph{Petal length is large but petal width is small}'' for a sample with petal\_width=18\,mm (true: virginica), misclassifying it as versicolor because vague qualitative reasoning cannot distinguish boundary cases. Even guided, Llama sometimes misapplies rules---e.g., stating ``\emph{petal\_width (18\,mm) $\leq$ 16\,mm}'' to justify versicolor, an arithmetically incorrect comparison.
+Qwen applies thresholds more reliably (e.g., ``\emph{petal\_length=47\,mm > 24\,mm, petal\_width=12\,mm $\leq$ 16\,mm $\Rightarrow$ versicolor}'') but still errs near boundaries. Notably, some correct predictions come with wrong reasoning, confirming that LLM explanations are post-hoc rationalizations, not faithful decision traces.
 
 \subsection{Discussion}
 
-\paragraph{Inductive bias alignment.}
-Classical tree-based models achieve near-perfect performance because their inductive bias---axis-aligned decision boundaries---matches the Iris decision surface exactly.
-The Decision Tree rule ``if petal\_length $\leq$ 24\,mm $\Rightarrow$ setosa; else if petal\_width $\leq$ 16\,mm $\Rightarrow$ versicolor; else virginica'' captures the essential structure in 3~splits.
+Table~\ref{tab:task2_summary} (Appendix) gives the full comparison across all 24~runs.
 
-\paragraph{Sample efficiency.}
-On 96 training samples, the Random Forest needs no text conversion, no GPU, and trains in milliseconds.
-Transformer models require textification, tokenization, and ${\sim}$24~epochs of fine-tuning to approach comparable performance.
-LLMs require no training but fail due to their inability to reason about numeric thresholds.
+\paragraph{Inductive bias and sample efficiency.}
+RF achieves 0.933~F1 from 96~samples in milliseconds. Transformers match this only with sufficient capacity (bert-mini/small) and careful textification, requiring ${\sim}$10--20 epochs of GPU fine-tuning. LLMs use no training data but encode billions of pretraining tokens---this general knowledge does not transfer to precise numeric thresholds.
+
+\paragraph{Robustness.}
+LLMs are the least robust approach: (i)~prompt format dramatically affects results (FLAN-T5's collapse vs.\ Qwen's 0.757 on the same task), (ii)~output parsing is fragile (Qwen produced 1~unparseable output in unguided mode, fixed by guidance), and (iii)~three models of comparable size (780M--1.5B) yield F1 from 0.167 to 0.757. Transformers are sensitive to representation (cm vs mm) and model size (bert-tiny collapses while bert-small succeeds).
 
 \paragraph{Interpretability.}
-Decision Tree rules are directly human-readable.
-RF provides global feature importances (petal dimensions account for 86\% of importance).
-Transformer attention patterns are opaque without dedicated attribution methods.
-LLM chain-of-thought reasoning, when present, is not guaranteed to be faithful to the actual prediction mechanism.
+DT rules are the gold standard. RF importances are informative but incomplete. Transformer decisions require dedicated attribution methods. LLM reasoning traces appear interpretable but are unreliable---correct predictions sometimes accompany incorrect reasoning.
 
-\paragraph{When to use each approach.}
-Classical models remain the correct choice for small, clean tabular datasets.
-Transformers become competitive when data is naturally textual or when a unified text interface is needed.
-LLM few-shot prompting is useful for rapid prototyping and explanation generation but should not be trusted for precise numeric classification without tool augmentation (e.g., injecting Decision Tree rules into the prompt, which showed promise in early Llama results).
+\paragraph{Practical recommendations.}
+Classical models are optimal for small structured data. Transformers are viable when a text interface is needed. LLM prompting is useful for rapid prototyping and explanation generation but should not be trusted for numeric classification without hybrid augmentation, and even then the gains are modest (Qwen guided: 0.757 vs RF: 0.933).
 
 %% ============================================================
 \section{Conclusion}
@@ -249,8 +260,8 @@ Task~2 confirms that classical ML remains unbeatable on small structured dataset
 Together, these findings underscore the importance of matching model inductive biases to data characteristics rather than defaulting to the largest available model.
 
 %% ============================================================
-\bibliographystyle{ACM-Reference-Format}
-\bibliography{references}
+% \bibliographystyle{ACM-Reference-Format}
+% \bibliography{references}
 
 %% ============================================================
 \appendix
@@ -287,5 +298,44 @@ MT FR: ``\texttt{@USER ce lexapro me rend si fatigu\'e que je ne peux pas foncti
 
 \paragraph{Decision tree guidance (injected into LLM prompt).}
 ``If petal\_length $\leq$ 24\,mm, it is setosa. Else if petal\_width $\leq$ 16\,mm, it is versicolor. Otherwise, it is virginica.''
+
+\section{Task~2: Full Model Comparison}
+\label{app:task2_full}
+
+Table~\ref{tab:task2_summary} reports all 24~experiment runs for Task~2, spanning classical, Transformer, and LLM approaches.
+
+\begin{table*}[t]
+  \caption{Task~2 comprehensive results on the Iris test set (30~samples). Summary statistics by approach are shown below the main table.}
+  \label{tab:task2_summary}
+  \small
+  \begin{tabular}{lllllrr}
+    \toprule
+    Approach & Model & Architecture & Learning & Repr. & F1 & Acc. \\
+    \midrule
+    Classical & RandomForest & Ensemble Trees & Training & structured & \textbf{.933} & .933 \\
+    Classical & DT (depth 3) & Single Tree & Training & structured & .933 & .933 \\
+    \midrule
+    Transformer & bert-small & Encoder & Fine-tune & compact\_cm & .933 & .933 \\
+    Transformer & bert-mini & Encoder & Fine-tune & compact\_mm & .933 & .933 \\
+    Transformer & bert-small & Encoder & Fine-tune & natural\_mm & .933 & .933 \\
+    Transformer & bert-small & Encoder & Fine-tune & natural\_cm & .900 & .900 \\
+    Transformer & bert-tiny & Encoder & Fine-tune & (various) & .333 & .333 \\
+    \midrule
+    LLM few-shot & Qwen2.5-1.5B & Decoder & ICL & compact\_mm & .750 & .759 \\
+    LLM + guidance & Qwen2.5-1.5B & Decoder & ICL & compact\_mm & \textbf{.757} & .767 \\
+    LLM few-shot & Llama-3.2-1B & Decoder & ICL & compact\_mm & .489 & .600 \\
+    LLM + guidance & Llama-3.2-1B & Decoder & ICL & compact\_mm & .556 & .667 \\
+    LLM few-shot & FLAN-T5-large & Enc-Dec & ICL & compact\_mm & .167 & .333 \\
+    LLM + guidance & FLAN-T5-large & Enc-Dec & ICL & compact\_mm & .167 & .333 \\
+    \midrule
+    \multicolumn{5}{l}{\textbf{Summary by approach}} & \textbf{mean / max F1} & \textbf{mean / max Acc.} \\
+    \midrule
+    \multicolumn{5}{l}{Classical} & .933 / .933 & .933 / .933 \\
+    \multicolumn{5}{l}{Transformer} & .658 / .933 & .708 / .933 \\
+    \multicolumn{5}{l}{LLM Few-shot} & .468 / .750 & .564 / .759 \\
+    \multicolumn{5}{l}{LLM + Classical Guidance} & .493 / .757 & .589 / .767 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
 
 \end{document}
